@@ -200,11 +200,12 @@ from six.moves.urllib.parse import parse_qsl, urldefrag, urlparse
 from openid import cryptutil, fetchers, oidutil, urinorm
 from openid.association import Association, SessionNegotiator, default_negotiator
 from openid.consumer.discover import (OPENID_1_0_TYPE, OPENID_1_1_TYPE, OPENID_2_0_TYPE, DiscoveryFailure,
-                                      OpenIDServiceEndpoint, discover)
+                                      OpenIDServiceEndpoint, discover, normalizeXRI)
 from openid.dh import DiffieHellman
 from openid.message import BARE_NS, IDENTIFIER_SELECT, OPENID1_NS, OPENID2_NS, OPENID_NS, Message, no_default
 from openid.oidutil import string_to_text
 from openid.store.nonce import mkNonce, split as splitNonce
+from openid.yadis import xri
 from openid.yadis.manager import Discovery
 
 __all__ = ['AuthRequest', 'Consumer', 'SuccessResponse',
@@ -878,6 +879,27 @@ class GenericConsumer(object):
             if pair not in parsed_args:
                 raise ProtocolError("Parameter %s not in return_to URL" % (pair[0],))
 
+    def _normalizeID(self, identifier, description, defrag=True):
+        if xri.identifierScheme(identifier) == 'XRI':
+            return normalizeXRI(identifier)
+        else:
+            parsed = urlparse(identifier)
+            if parsed[0] and parsed[1]:
+                if parsed[0] not in ('http', 'https'):
+                    raise ProtocolError(
+                        'Normalizing %s: URI scheme is not HTTP or HTTPS' %
+                        description)
+            else:
+                identifier = 'http://' + identifier
+
+            try:
+                normalized = urinorm.urinorm(identifier)
+            except ValueError as why:
+                raise ProtocolError(
+                    'Normalizing %s: %s' % (description, six.text_type(why)))
+            else:
+                return urldefrag(normalized)[0] if defrag else normalized
+
     def _verifyDiscoveryResults(self, resp_msg, endpoint=None):
         """
         Extract the information from an OpenID assertion message and
@@ -940,7 +962,11 @@ class GenericConsumer(object):
 
         # The endpoint we return should have the claimed ID from the
         # message we just verified, fragment and all.
-        if endpoint.claimed_id != to_match.claimed_id:
+        normalized_claimed_id = self._normalizeID(
+            to_match.claimed_id, 'expected claimed ID', defrag=False)
+        normalized_endpoint_claimed_id = self._normalizeID(
+            endpoint.claimed_id, 'discovered claimed ID', defrag=False)
+        if normalized_endpoint_claimed_id != normalized_claimed_id:
             endpoint = copy.copy(endpoint)
             endpoint.claimed_id = to_match.claimed_id
         return endpoint
@@ -1005,16 +1031,24 @@ class GenericConsumer(object):
 
         # Fragments do not influence discovery, so we can't compare a
         # claimed identifier with a fragment to discovered information.
-        defragged_claimed_id, _ = urldefrag(to_match.claimed_id)
-        if defragged_claimed_id != endpoint.claimed_id:
+        normalized_claimed_id = self._normalizeID(
+            to_match.claimed_id, 'expected claimed ID')
+        normalized_endpoint_claimed_id = self._normalizeID(
+            endpoint.claimed_id, 'discovered claimed ID')
+        if normalized_claimed_id != normalized_endpoint_claimed_id:
             raise ProtocolError(
                 'Claimed ID does not match (different subjects!), '
                 'Expected %s, got %s' %
-                (defragged_claimed_id, endpoint.claimed_id))
+                (normalized_claimed_id, normalized_endpoint_claimed_id))
 
-        if to_match.getLocalID() != endpoint.getLocalID():
-            raise ProtocolError('local_id mismatch. Expected %s, got %s' %
-                                (to_match.getLocalID(), endpoint.getLocalID()))
+        normalized_local_id = self._normalizeID(
+            to_match.getLocalID(), 'expected local ID')
+        normalized_endpoint_local_id = self._normalizeID(
+            endpoint.getLocalID(), 'discovered local ID')
+        if normalized_local_id != normalized_endpoint_local_id:
+            raise ProtocolError(
+                'local_id mismatch. Expected %s, got %s' %
+                (normalized_local_id, normalized_endpoint_local_id))
 
         # If the server URL is None, this must be an OpenID 1
         # response, because op_endpoint is a required parameter in
@@ -1028,9 +1062,15 @@ class GenericConsumer(object):
                 that it is set as the `server_url' attribute of the
                 `to_match' endpoint.""")
 
-        elif to_match.server_url != endpoint.server_url:
-            raise ProtocolError('OP Endpoint mismatch. Expected %s, got %s' %
-                                (to_match.server_url, endpoint.server_url))
+        else:
+            normalized_server_url = self._normalizeID(
+                to_match.server_url, 'expected server URL')
+            normalized_endpoint_server_url = self._normalizeID(
+                endpoint.server_url, 'discovered server URL')
+            if normalized_server_url != normalized_endpoint_server_url:
+                raise ProtocolError(
+                    'OP Endpoint mismatch. Expected %s, got %s' %
+                    (normalized_server_url, normalized_endpoint_server_url))
 
     def _discoverAndVerify(self, claimed_id, to_match_endpoints):
         """Given an endpoint object created from the information in an

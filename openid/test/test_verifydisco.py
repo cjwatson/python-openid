@@ -45,7 +45,7 @@ class DiscoveryVerificationTest(TestIdRes):
 
     def test_openID2LocalIDNoClaimed(self):
         msg = message.Message.fromOpenIDArgs({'ns': message.OPENID2_NS,
-                                              'op_endpoint': 'Phone Home',
+                                              'op_endpoint': 'http://op.test/',
                                               'identity': 'Jose Lius Borges'})
         with LogCapture() as logbook:
             with six.assertRaisesRegex(self, consumer.ProtocolError, 'openid.identity is present without'):
@@ -54,7 +54,7 @@ class DiscoveryVerificationTest(TestIdRes):
 
     def test_openID2NoLocalIDClaimed(self):
         msg = message.Message.fromOpenIDArgs({'ns': message.OPENID2_NS,
-                                              'op_endpoint': 'Phone Home',
+                                              'op_endpoint': 'http://op.test/',
                                               'claimed_id': 'Manuel Noriega'})
         with LogCapture() as logbook:
             with six.assertRaisesRegex(self, consumer.ProtocolError, 'openid.claimed_id is present without'):
@@ -62,7 +62,7 @@ class DiscoveryVerificationTest(TestIdRes):
         self.assertEqual(logbook.records, [])
 
     def test_openID2NoIdentifiers(self):
-        op_endpoint = 'Phone Home'
+        op_endpoint = 'http://op.test/'
         msg = message.Message.fromOpenIDArgs({'ns': message.OPENID2_NS,
                                               'op_endpoint': op_endpoint})
         with LogCapture() as logbook:
@@ -73,7 +73,7 @@ class DiscoveryVerificationTest(TestIdRes):
         self.assertEqual(logbook.records, [])
 
     def test_openID2NoEndpointDoesDisco(self):
-        op_endpoint = 'Phone Home'
+        op_endpoint = 'http://op.test/'
         sentinel = discover.OpenIDServiceEndpoint()
         sentinel.claimed_id = 'monkeysoft'
         self.consumer._discoverAndVerify = const(sentinel)
@@ -89,10 +89,10 @@ class DiscoveryVerificationTest(TestIdRes):
 
     def test_openID2MismatchedDoesDisco(self):
         mismatched = discover.OpenIDServiceEndpoint()
-        mismatched.identity = 'nothing special, but different'
-        mismatched.local_id = 'green cheese'
+        mismatched.identity = 'http://op.test/nothing-special,-but-different'
+        mismatched.local_id = 'http://op.test/green-cheese'
 
-        op_endpoint = 'Phone Home'
+        op_endpoint = 'http://op.test/'
         sentinel = discover.OpenIDServiceEndpoint()
         sentinel.claimed_id = 'monkeysoft'
         self.consumer._discoverAndVerify = const(sentinel)
@@ -109,9 +109,9 @@ class DiscoveryVerificationTest(TestIdRes):
 
     def test_openid2UsePreDiscovered(self):
         endpoint = discover.OpenIDServiceEndpoint()
-        endpoint.local_id = 'my identity'
-        endpoint.claimed_id = 'i am sam'
-        endpoint.server_url = 'Phone Home'
+        endpoint.local_id = 'http://op.test/my-identity'
+        endpoint.claimed_id = 'http://op.test/i-am-sam'
+        endpoint.server_url = 'http://op.test/'
         endpoint.type_uris = [discover.OPENID_2_0_TYPE]
 
         msg = message.Message.fromOpenIDArgs(
@@ -128,9 +128,9 @@ class DiscoveryVerificationTest(TestIdRes):
         text = "verify failed"
 
         endpoint = discover.OpenIDServiceEndpoint()
-        endpoint.local_id = 'my identity'
-        endpoint.claimed_id = 'i am sam'
-        endpoint.server_url = 'Phone Home'
+        endpoint.local_id = 'http://op.test/my-identity'
+        endpoint.claimed_id = 'http://op.test/i-am-sam'
+        endpoint.server_url = 'http://op.test/'
         endpoint.type_uris = [discover.OPENID_1_1_TYPE]
 
         def discoverAndVerify(claimed_id, to_match_endpoints):
@@ -154,11 +154,28 @@ class DiscoveryVerificationTest(TestIdRes):
         logbook.check(('openid.consumer.consumer', 'INFO', StringComparison('Unable to use stored discovery .*')),
                       ('openid.consumer.consumer', 'INFO', 'Attempting discovery to verify endpoint'))
 
+    def test_openid2Normalizes(self):
+        endpoint = discover.OpenIDServiceEndpoint()
+        endpoint.local_id = 'http://op.test/%2Bid/my-identity'
+        endpoint.claimed_id = 'http://op.test/%2Bid/i-am-sam'
+        endpoint.server_url = 'http://op.test/%2Bid/'
+        endpoint.type_uris = [discover.OPENID_2_0_TYPE]
+
+        msg = message.Message.fromOpenIDArgs(
+            {'ns': message.OPENID2_NS,
+             'identity': 'http://op.test/+id/my-identity',
+             'claimed_id': 'http://op.test/+id/i-am-sam',
+             'op_endpoint': 'http://op.test/+id/'})
+        with LogCapture() as logbook:
+            result = self.consumer._verifyDiscoveryResults(msg, endpoint)
+        self.assertEqual(result, endpoint)
+        self.assertEqual(logbook.records, [])
+
     def test_openid1UsePreDiscovered(self):
         endpoint = discover.OpenIDServiceEndpoint()
-        endpoint.local_id = 'my identity'
-        endpoint.claimed_id = 'i am sam'
-        endpoint.server_url = 'Phone Home'
+        endpoint.local_id = 'http://op.test/my-identity'
+        endpoint.claimed_id = 'http://op.test/i-am-sam'
+        endpoint.server_url = 'http://op.test/'
         endpoint.type_uris = [discover.OPENID_1_1_TYPE]
 
         msg = message.Message.fromOpenIDArgs(
@@ -179,9 +196,9 @@ class DiscoveryVerificationTest(TestIdRes):
         self.consumer._discoverAndVerify = discoverAndVerify
 
         endpoint = discover.OpenIDServiceEndpoint()
-        endpoint.local_id = 'my identity'
-        endpoint.claimed_id = 'i am sam'
-        endpoint.server_url = 'Phone Home'
+        endpoint.local_id = 'http://op.test/my-identity'
+        endpoint.claimed_id = 'http://op.test/i-am-sam'
+        endpoint.server_url = 'http://op.test/'
         endpoint.type_uris = [discover.OPENID_2_0_TYPE]
 
         msg = message.Message.fromOpenIDArgs(
@@ -193,13 +210,28 @@ class DiscoveryVerificationTest(TestIdRes):
         logbook.check(('openid.consumer.consumer', 'INFO', StringComparison('Unable to use stored discovery .*')),
                       ('openid.consumer.consumer', 'INFO', 'Attempting discovery to verify endpoint'))
 
+    def test_openid1Normalizes(self):
+        endpoint = discover.OpenIDServiceEndpoint()
+        endpoint.local_id = 'http://op.test/%2Bid/my-identity'
+        endpoint.claimed_id = 'http://op.test/%2Bid/i-am-sam'
+        endpoint.server_url = 'http://op.test/%2Bid/'
+        endpoint.type_uris = [discover.OPENID_1_1_TYPE]
+
+        msg = message.Message.fromOpenIDArgs(
+            {'ns': message.OPENID1_NS,
+             'identity': 'http://op.test/+id/my-identity'})
+        with LogCapture() as logbook:
+            result = self.consumer._verifyDiscoveryResults(msg, endpoint)
+        self.assertEqual(result, endpoint)
+        self.assertEqual(logbook.records, [])
+
     def test_openid2Fragment(self):
         claimed_id = "http://unittest.invalid/"
         claimed_id_frag = claimed_id + "#fragment"
         endpoint = discover.OpenIDServiceEndpoint()
-        endpoint.local_id = 'my identity'
+        endpoint.local_id = 'http://op.test/my-identity'
         endpoint.claimed_id = claimed_id
-        endpoint.server_url = 'Phone Home'
+        endpoint.server_url = 'http://op.test/'
         endpoint.type_uris = [discover.OPENID_2_0_TYPE]
 
         msg = message.Message.fromOpenIDArgs(
